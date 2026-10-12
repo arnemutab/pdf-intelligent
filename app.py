@@ -15,11 +15,7 @@ st.write(
     "de son contenu."
 )
 
-api_key = st.text_input(
-    "Clé API Groq",
-    type="password",
-    help="Votre clé reste dans la session de cette application."
-)
+api_key = st.secrets["GROQ_API_KEY"]
 
 uploaded_file = st.file_uploader(
     "Choisissez un article scientifique",
