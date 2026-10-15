@@ -1,6 +1,14 @@
+
+import hashlib
+
 import streamlit as st
 import pymupdf
 from groq import Groq
+
+
+# --------------------------------------------------
+# 1. Configuration
+# --------------------------------------------------
 
 st.set_page_config(
     page_title="PDF Intelligent",
@@ -8,14 +16,22 @@ st.set_page_config(
     layout="wide"
 )
 
+MODEL = "openai/gpt-oss-20b"
+MAX_CONTEXT_CHARS = 24000
+
 st.title("📚 PDF Intelligent")
 st.subheader("Comprendre un article scientifique plus rapidement")
 st.write(
     "Importez un article PDF pour obtenir une analyse structurée "
-    "de son contenu."
+    "et poser vos questions sur son contenu."
 )
 
-api_key = st.secrets["GROQ_API_KEY"]
+api_key = st.secrets.get("GROQ_API_KEY", "")
+
+
+# --------------------------------------------------
+# 2. Importation et extraction du PDF
+# --------------------------------------------------
 
 uploaded_file = st.file_uploader(
     "Choisissez un article scientifique",
@@ -24,13 +40,20 @@ uploaded_file = st.file_uploader(
 
 if uploaded_file:
     try:
+        pdf_bytes = uploaded_file.getvalue()
+        document_id = hashlib.sha256(pdf_bytes).hexdigest()
+
         with pymupdf.open(
-            stream=uploaded_file.getvalue(),
+            stream=pdf_bytes,
             filetype="pdf"
         ) as pdf:
-            pages_texte = [page.get_text() for page in pdf]
-            texte = "\n".join(pages_texte)
-            nb_pages = len(pdf)
+            pages_texte = [
+                page.get_text()
+                for page in pdf
+            ]
+
+        nb_pages = len(pages_texte)
+        texte = "\n".join(pages_texte)
 
         st.success(
             f"Document chargé : {nb_pages} page(s)"
@@ -38,169 +61,192 @@ if uploaded_file:
 
         if not texte.strip():
             st.warning(
-                "Aucun texte détecté. Ce PDF est peut-être scanné."
+                "Aucun texte détecté. Ce PDF est peut-être scanné. "
+                "La reconnaissance OCR n'est pas encore disponible."
             )
-        
+            st.stop()
+
+        # Réinitialiser la conversation si le PDF change.
+        if st.session_state.get("document_id") != document_id:
+            st.session_state["document_id"] = document_id
+            st.session_state["chat_messages"] = []
+
+        # Préparer le contexte avec les numéros de page.
+        pages_incluses = []
+        caracteres_restants = MAX_CONTEXT_CHARS
+
+        for numero, contenu in enumerate(pages_texte, start=1):
+            contenu = contenu.strip()
+
+            if not contenu:
+                continue
+
+            if caracteres_restants <= 0:
+                break
+
+            extrait = contenu[:caracteres_restants]
+
+            pages_incluses.append(
+                f"[Page {numero}]\n{extrait}"
+            )
+
+            caracteres_restants -= len(extrait)
+
+        contexte_pdf = "\n\n".join(pages_incluses)
+
+        if len(texte) > MAX_CONTEXT_CHARS:
+            st.info(
+                "Le document est long : le chat utilise uniquement "
+                "la partie du texte incluse dans son contexte actuel. "
+                "Certaines pages peuvent ne pas être prises en compte."
+            )
+
+        # --------------------------------------------------
+        # 3. Chat avec le PDF
+        # --------------------------------------------------
+
         st.markdown("---")
-        st.subheader("💬 Poser une question sur mon PDF")
+        st.subheader("💬 Discutez avec votre PDF")
         st.caption(
-            "Recherche locale par mots-clés, sans appel à l'API."
+            "Posez directement votre question. "
+            "La réponse est générée uniquement après l'envoi."
         )
 
-        question = st.text_input(
-            "Votre question",
-            placeholder="Ex. : Quelle méthodologie les auteurs utilisent-ils ?"
-        )
+        # Afficher la conversation existante.
+        for message in st.session_state["chat_messages"]:
+            with st.chat_message(message["role"]):
+                st.markdown(message["content"])
 
-        if st.button("Rechercher dans le PDF"):
-            if not texte.strip():
-                st.warning("Ce PDF ne contient pas de texte exploitable.")
-            elif not question.strip():
+        # Formulaire : un envoi explicite déclenche l'appel API.
+        with st.form("pdf_chat_form", clear_on_submit=True):
+            question = st.text_input(
+                "Votre question",
+                placeholder=(
+                    "Ex. : Quelle méthodologie les auteurs utilisent-ils ?"
+                )
+            )
+
+            envoyer = st.form_submit_button(
+                "Envoyer",
+                type="primary"
+            )
+
+        if envoyer:
+            if not question.strip():
                 st.warning("Veuillez saisir une question.")
+
+            elif not api_key:
+                st.error(
+                    "Clé API Groq manquante. "
+                    "Vérifiez le secret GROQ_API_KEY dans Streamlit."
+                )
+
             else:
-                import re
-
-                mots = set(
-                    re.findall(r"\b[\w-]{3,}\b", question.lower())
+                # Afficher la question immédiatement.
+                st.session_state["chat_messages"].append(
+                    {
+                        "role": "user",
+                        "content": question.strip()
+                    }
                 )
 
-                mots_exclus = {
-                    "quelle", "quelles", "quels", "quel",
-                    "dans", "pour", "avec", "sont", "leur",
-                    "leurs", "elle", "elles", "nous", "vous",
-                    "est-ce", "comment", "pourquoi"
-                }
-                mots -= mots_exclus
+                with st.chat_message("user"):
+                    st.markdown(question.strip())
 
-                passages = []
+                system_prompt = """
+Tu es Smart PDF, un assistant d'analyse scientifique rigoureux.
 
-                for numero_page, contenu_page in enumerate(
-                    pages_texte, start=1
-                ):
-                    paragraphes = [
-                        p.strip()
-                        for p in contenu_page.split("\n")
-                        if p.strip()
-                    ]
+Tu réponds en français en t'appuyant sur le texte du PDF fourni.
 
-                    for paragraphe in paragraphes:
-                        correspondances = sum(
-                            1 for mot in mots
-                            if mot in paragraphe.lower()
-                        )
-
-                        if correspondances > 0:
-                            passages.append({
-                                "page": numero_page,
-                                "score": correspondances,
-                                "texte": paragraphe
-                            })
-
-                passages.sort(
-                    key=lambda p: p["score"],
-                    reverse=True
-                )
-
-                                   
-                if not passages:
-                    st.info(
-                        "Aucun passage correspondant trouvé. "
-                        "Essayez avec d'autres mots-clés."
-                    )
-                else:
-                    passages_retenus = passages[:5]
-
-                    st.success(
-                        f"{len(passages_retenus)} passage(s) trouvé(s)."
-                    )
-
-                    for passage in passages_retenus:
-                        st.markdown(
-                            f"**📄 Page {passage['page']}**"
-                        )
-                        st.write(passage["texte"])
-                        st.divider()
-
-                    st.session_state["passages_chat"] = [
-                        {
-                            "page": p["page"],
-                            "texte": p["texte"]
-                        }
-                        for p in passages_retenus
-                    ]
-                    st.session_state["question_chat"] = question
-         
-        passages_chat = st.session_state.get("passages_chat", [])
-        question_chat = st.session_state.get("question_chat", "")
-
-        if passages_chat:
-            if st.button("🤖 Générer la réponse IA", type="primary"):
-                if not api_key:
-                    st.error("Clé API Groq manquante.")
-                else:
-                    contexte = "\n\n".join(
-                        f"Page {p['page']} :\n{p['texte']}"
-                        for p in passages_chat
-                    )
-
-                    prompt_chat = f"""
-Réponds en français à la question en utilisant uniquement
-les extraits du document ci-dessous.
-
-Question : {question_chat}
-
-Extraits :
-{contexte}
-
-Consignes :
-- N'invente aucune information.
-- Cite les pages sous la forme [Page 2].
-- Si les extraits ne suffisent pas, indique-le clairement.
-- Distingue les faits des éventuelles incertitudes.
+Règles impératives :
+- Utilise uniquement les informations disponibles dans le document.
+- Cite les pages qui soutiennent tes affirmations sous la forme [Page 3].
+- Les numéros de page correspondent aux marqueurs [Page N] du contexte.
+- Ne fabrique jamais une citation ni un numéro de page.
+- Si le document ne permet pas de répondre, dis-le clairement.
+- Si une information est absente du contexte fourni, précise-le.
+- Distingue les résultats rapportés par les auteurs de tes explications.
+- Réponds clairement et de façon structurée.
 """
 
-                    try:
-                        client = Groq(api_key=api_key)
+                # Conserver au maximum les derniers échanges.
+                historique = st.session_state["chat_messages"][:-1][-6:]
 
-                        with st.spinner("Génération de la réponse..."):
+                messages_api = [
+                    {
+                        "role": "system",
+                        "content": system_prompt
+                    },
+                    {
+                        "role": "user",
+                        "content": (
+                            "Voici le texte du document à analyser. "
+                            "Conserve les marqueurs de pages pour les citations.\n\n"
+                            + contexte_pdf
+                        )
+                    }
+                ]
+
+                messages_api.extend(historique)
+
+                messages_api.append(
+                    {
+                        "role": "user",
+                        "content": question.strip()
+                    }
+                )
+
+                try:
+                    client = Groq(api_key=api_key)
+
+                    with st.chat_message("assistant"):
+                        with st.spinner("Analyse du document en cours..."):
                             response = client.chat.completions.create(
-                                model="openai/gpt-oss-20b",
-                                messages=[
-                                    {
-                                        "role": "system",
-                                        "content": (
-                                            "Tu es un assistant scientifique "
-                                            "rigoureux. Tu n'inventes pas "
-                                            "de sources ni de résultats."
-                                        )
-                                    },
-                                    {
-                                        "role": "user",
-                                        "content": prompt_chat
-                                    }
-                                ],
+                                model=MODEL,
+                                messages=messages_api,
                                 temperature=0.2
                             )
 
-                        reponse_chat = (
-                            response.choices[0].message.content
-                        )
+                        reponse = response.choices[0].message.content
 
-                        st.markdown("### 💡 Réponse")
-                        st.markdown(reponse_chat)
+                        if not reponse:
+                            reponse = (
+                                "Aucune réponse n'a été retournée. "
+                                "Veuillez réessayer."
+                            )
 
-                    except Exception as e:
-                        st.error(
-                            "La génération a échoué. Vérifie les limites "
-                            "du service Groq et le nom du modèle."
-                        )
-               
-        
+                        st.markdown(reponse)
+
+                    st.session_state["chat_messages"].append(
+                        {
+                            "role": "assistant",
+                            "content": reponse
+                        }
+                    )
+
+                except Exception:
+                    # Éviter d'afficher des détails sensibles de l'API.
+                    st.error(
+                        "La réponse n'a pas pu être générée. "
+                        "Vérifiez la configuration Groq, le modèle "
+                        "et les limites du service, puis réessayez."
+                    )
+
+        if st.button("Effacer la conversation"):
+            st.session_state["chat_messages"] = []
+            st.rerun()
+
+        # --------------------------------------------------
+        # 4. Analyse scientifique existante
+        # --------------------------------------------------
+
+        st.markdown("---")
+        st.subheader("📝 Analyse scientifique")
+
         if st.button("Analyser mon article", type="primary"):
             if not api_key:
-                st.error("Veuillez saisir votre clé API Groq.")
-            elif not texte.strip():
-                st.error("Impossible d'analyser ce PDF sans texte.")
+                st.error("Clé API Groq manquante.")
+
             else:
                 prompt = f"""
 Analyse cet article scientifique en français.
@@ -217,6 +263,9 @@ N'invente aucune information.
 Pour toute information absente, écris :
 "Non précisé dans le texte".
 
+Cite les pages lorsque cela est possible.
+Le texte ci-dessous peut être incomplet si le PDF est long.
+
 Texte de l'article :
 {texte[:12000]}
 """
@@ -226,7 +275,7 @@ Texte de l'article :
 
                     with st.spinner("Analyse en cours..."):
                         response = client.chat.completions.create(
-                            model="openai/gpt-oss-20b",
+                            model=MODEL,
                             messages=[
                                 {
                                     "role": "system",
@@ -244,7 +293,8 @@ Texte de l'article :
                         )
 
                     resume = response.choices[0].message.content
-                    st.markdown("## Résultat de l'analyse")
+
+                    st.markdown("### Résultat de l'analyse")
                     st.markdown(resume)
 
                     st.download_button(
@@ -261,4 +311,7 @@ Texte de l'article :
                     )
 
     except Exception:
-        st.error("Impossible de lire ce fichier PDF.")
+        st.error(
+            "Impossible de lire ce fichier PDF. "
+            "Vérifiez qu'il s'agit d'un document PDF valide."
+        )
