@@ -224,13 +224,16 @@ Règles impératives :
                         }
                     )
 
-                except Exception:
-                    # Éviter d'afficher des détails sensibles de l'API.
-                    st.error(
-                        "La réponse n'a pas pu être générée. "
-                        "Vérifiez la configuration Groq, le modèle "
-                        "et les limites du service, puis réessayez."
-                    )
+                    
+                except Exception as e:
+                    st.error("Échec de la génération de la réponse.")
+                    st.write("Type d'erreur :", type(e).__name__)
+
+                    if hasattr(e, "status_code"):
+                        st.write("Code HTTP :", e.status_code)
+
+                    st.code(str(e)[:1500])
+
 
         if st.button("Effacer la conversation"):
             st.session_state["chat_messages"] = []
