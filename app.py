@@ -102,23 +102,100 @@ if uploaded_file:
                 )
 
                 if not passages:
+                    
+                if not passages:
                     st.info(
                         "Aucun passage correspondant trouvé. "
                         "Essayez avec d'autres mots-clés."
                     )
                 else:
+                    passages_retenus = passages[:5]
+
                     st.success(
-                        f"{min(len(passages), 5)} passage(s) pertinent(s) trouvé(s)."
+                        f"{len(passages_retenus)} passage(s) trouvé(s)."
                     )
 
-                    for passage in passages[:5]:
+                    for passage in passages_retenus:
                         st.markdown(
                             f"**📄 Page {passage['page']}**"
                         )
                         st.write(passage["texte"])
                         st.divider()
 
+                    st.session_state["passages_chat"] = [
+                        {
+                            "page": p["page"],
+                            "texte": p["texte"]
+                        }
+                        for p in passages_retenus
+                    ]
+                    st.session_state["question_chat"] = question
+         
+        passages_chat = st.session_state.get("passages_chat", [])
+        question_chat = st.session_state.get("question_chat", "")
 
+        if passages_chat:
+            if st.button("🤖 Générer la réponse IA", type="primary"):
+                if not api_key:
+                    st.error("Clé API Groq manquante.")
+                else:
+                    contexte = "\n\n".join(
+                        f"Page {p['page']} :\n{p['texte']}"
+                        for p in passages_chat
+                    )
+
+                    prompt_chat = f"""
+Réponds en français à la question en utilisant uniquement
+les extraits du document ci-dessous.
+
+Question : {question_chat}
+
+Extraits :
+{contexte}
+
+Consignes :
+- N'invente aucune information.
+- Cite les pages sous la forme [Page 2].
+- Si les extraits ne suffisent pas, indique-le clairement.
+- Distingue les faits des éventuelles incertitudes.
+"""
+
+                    try:
+                        client = Groq(api_key=api_key)
+
+                        with st.spinner("Génération de la réponse..."):
+                            response = client.chat.completions.create(
+                                model="openai/gpt-oss-20b",
+                                messages=[
+                                    {
+                                        "role": "system",
+                                        "content": (
+                                            "Tu es un assistant scientifique "
+                                            "rigoureux. Tu n'inventes pas "
+                                            "de sources ni de résultats."
+                                        )
+                                    },
+                                    {
+                                        "role": "user",
+                                        "content": prompt_chat
+                                    }
+                                ],
+                                temperature=0.2
+                            )
+
+                        reponse_chat = (
+                            response.choices[0].message.content
+                        )
+
+                        st.markdown("### 💡 Réponse")
+                        st.markdown(reponse_chat)
+
+                    except Exception as e:
+                        st.error(
+                            "La génération a échoué. Vérifie les limites "
+                            "du service Groq et le nom du modèle."
+                        )
+               
         
         if st.button("Analyser mon article", type="primary"):
             if not api_key:
