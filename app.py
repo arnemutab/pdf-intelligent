@@ -28,7 +28,8 @@ if uploaded_file:
             stream=uploaded_file.getvalue(),
             filetype="pdf"
         ) as pdf:
-            texte = "\n".join(page.get_text() for page in pdf)
+            pages_texte = [page.get_text() for page in pdf]
+            texte = "\n".join(pages_texte)
             nb_pages = len(pdf)
 
         st.success(
@@ -39,7 +40,86 @@ if uploaded_file:
             st.warning(
                 "Aucun texte détecté. Ce PDF est peut-être scanné."
             )
+        
+        st.markdown("---")
+        st.subheader("💬 Poser une question sur mon PDF")
+        st.caption(
+            "Recherche locale par mots-clés, sans appel à l'API."
+        )
 
+        question = st.text_input(
+            "Votre question",
+            placeholder="Ex. : Quelle méthodologie les auteurs utilisent-ils ?"
+        )
+
+        if st.button("Rechercher dans le PDF"):
+            if not texte.strip():
+                st.warning("Ce PDF ne contient pas de texte exploitable.")
+            elif not question.strip():
+                st.warning("Veuillez saisir une question.")
+            else:
+                import re
+
+                mots = set(
+                    re.findall(r"\b[\w-]{3,}\b", question.lower())
+                )
+
+                mots_exclus = {
+                    "quelle", "quelles", "quels", "quel",
+                    "dans", "pour", "avec", "sont", "leur",
+                    "leurs", "elle", "elles", "nous", "vous",
+                    "est-ce", "comment", "pourquoi"
+                }
+                mots -= mots_exclus
+
+                passages = []
+
+                for numero_page, contenu_page in enumerate(
+                    pages_texte, start=1
+                ):
+                    paragraphes = [
+                        p.strip()
+                        for p in contenu_page.split("\n")
+                        if p.strip()
+                    ]
+
+                    for paragraphe in paragraphes:
+                        correspondances = sum(
+                            1 for mot in mots
+                            if mot in paragraphe.lower()
+                        )
+
+                        if correspondances > 0:
+                            passages.append({
+                                "page": numero_page,
+                                "score": correspondances,
+                                "texte": paragraphe
+                            })
+
+                passages.sort(
+                    key=lambda p: p["score"],
+                    reverse=True
+                )
+
+                if not passages:
+                    st.info(
+                        "Aucun passage correspondant trouvé. "
+                        "Essayez avec d'autres mots-clés."
+                    )
+                else:
+                    st.success(
+                        f"{min(len(passages), 5)} passage(s) pertinent(s) trouvé(s)."
+                    )
+
+                    for passage in passages[:5]:
+                        st.markdown(
+                            f"**📄 Page {passage['page']}**"
+                        )
+                        st.write(passage["texte"])
+                        st.divider()
+
+
+        
         if st.button("Analyser mon article", type="primary"):
             if not api_key:
                 st.error("Veuillez saisir votre clé API Groq.")
