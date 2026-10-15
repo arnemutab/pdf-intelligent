@@ -101,8 +101,7 @@ if uploaded_file:
                     reverse=True
                 )
 
-                if not passages:
-                    
+                                   
                 if not passages:
                     st.info(
                         "Aucun passage correspondant trouvé. "
