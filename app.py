@@ -214,7 +214,7 @@ Règles impératives :
                             response = client.chat.completions.create(
                                 model=MODEL,
                                 messages=messages_api,
-                                temperature=0.2
+                                temperature=0.2,
                                 max_completion_tokens=MAX_OUTPUT_TOKENS
                             )
 
