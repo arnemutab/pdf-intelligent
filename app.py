@@ -17,7 +17,9 @@ st.set_page_config(
 )
 
 MODEL = "openai/gpt-oss-20b"
-MAX_CONTEXT_CHARS = 24000
+MAX_CONTEXT_CHARS = 10000
+MAX_HISTORY_MESSAGES = 4
+MAX_OUTPUT_TOKENS = 1000
 
 st.title("📚 PDF Intelligent")
 st.subheader("Comprendre un article scientifique plus rapidement")
@@ -170,7 +172,15 @@ Règles impératives :
 """
 
                 # Conserver au maximum les derniers échanges.
-                historique = st.session_state["chat_messages"][:-1][-6:]
+                historique = st.session_state["chat_messages"][:-1][-MAX_HISTORY_MESSAGES:]
+
+                historique = [
+                    {
+                        "role": message["role"],
+                         "content": message["content"][:1500]
+                    }
+                    for message in historique
+                ]
 
                 messages_api = [
                     {
@@ -205,6 +215,7 @@ Règles impératives :
                                 model=MODEL,
                                 messages=messages_api,
                                 temperature=0.2
+                                max_completion_tokens=MAX_OUTPUT_TOKENS
                             )
 
                         reponse = response.choices[0].message.content
