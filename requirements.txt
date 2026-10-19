@@ -1,3 +1,4 @@
 streamlit
 pymupdf
 groq
+scikit-learn
