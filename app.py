@@ -31,6 +31,44 @@ st.write(
 api_key = st.secrets.get("GROQ_API_KEY", "")
 
 
+def rechercher_passages(question, chunks_pdf):
+    if not chunks_pdf:
+        return []
+
+    documents = [
+        chunk["text"] for chunk in chunks_pdf
+    ]
+
+    vectorizer = TfidfVectorizer(
+        lowercase=True,
+        strip_accents="unicode",
+        ngram_range=(1, 2),
+        sublinear_tf=True
+    )
+
+    matrice = vectorizer.fit_transform(
+        documents + [question]
+    )
+
+    scores = cosine_similarity(
+        matrice[-1],
+        matrice[:-1]
+    ).ravel()
+
+    meilleurs_indices = scores.argsort()[::-1]
+
+    passages = []
+
+    for index in meilleurs_indices:
+        if scores[index] <= 0:
+            break
+
+        passages.append(chunks_pdf[index])
+
+        if len(passages) >= MAX_RETRIEVED_CHUNKS:
+            break
+
+    return passages
 # --------------------------------------------------
 # 2. Importation et extraction du PDF
 # --------------------------------------------------
@@ -74,34 +112,33 @@ if uploaded_file:
             st.session_state["chat_messages"] = []
 
         # Préparer le contexte avec les numéros de page.
-        pages_incluses = []
-        caracteres_restants = MAX_CONTEXT_CHARS
+        # Préparer les passages du PDF en conservant les pages.
+        chunks_pdf = []
 
         for numero, contenu in enumerate(pages_texte, start=1):
             contenu = contenu.strip()
-
             if not contenu:
                 continue
 
-            if caracteres_restants <= 0:
-                break
+            debut = 0
+            while debut < len(contenu):
+                fin = debut + CHUNK_SIZE
+                extrait = contenu[debut:fin].strip()
 
-            extrait = contenu[:caracteres_restants]
+                if extrait:
+                    chunks_pdf.append({
+                       "page": numero,
+                       "text": extrait
+                    })
 
-            pages_incluses.append(
-                f"[Page {numero}]\n{extrait}"
-            )
+                if fin >= len(contenu):
+                    break
+                debut = fin - CHUNK_OVERLAP
 
-            caracteres_restants -= len(extrait)
-
-        contexte_pdf = "\n\n".join(pages_incluses)
-
-        if len(texte) > MAX_CONTEXT_CHARS:
-            st.info(
-                "Le document est long : le chat utilise uniquement "
-                "la partie du texte incluse dans son contexte actuel. "
-                "Certaines pages peuvent ne pas être prises en compte."
-            )
+        st.success(
+           f"Document prêt : {len(chunks_pdf)} passages indexés."
+        )
+        
 
         # --------------------------------------------------
         # 3. Chat avec le PDF
@@ -182,6 +219,35 @@ Règles impératives :
                     for message in historique
                 ]
 
+                passages = rechercher_passages(
+                    question.strip(),
+                    chunks_pdf
+                )
+
+                if not passages:
+                    st.warning(
+                       "Je n'ai pas trouvé de passage suffisamment pertinent "
+                        "pour répondre à cette question dans le document."
+                    )
+                    st.stop()
+
+                contexte_retrouve = "\n\n".join(
+                    f"[Page {passage['page']}]\n{passage['text']}"
+                    for passage in passages
+                )
+
+                historique = st.session_state["chat_messages"][:-1][
+                    -MAX_HISTORY_MESSAGES:
+                ]
+
+                historique = [
+                    {
+                        "role": message["role"],
+                        "content": message["content"][:1500]
+                    }
+                    for message in historique
+                ]
+
                 messages_api = [
                     {
                         "role": "system",
@@ -190,22 +256,22 @@ Règles impératives :
                     {
                         "role": "user",
                         "content": (
-                            "Voici le texte du document à analyser. "
-                            "Conserve les marqueurs de pages pour les citations.\n\n"
-                            + contexte_pdf
+                            "Voici les passages sélectionnés dans l'article. "
+                            "Réponds uniquement à partir de ces extraits. "
+                            "Cite les pages sous la forme [Page N]. "
+                            "Si les extraits ne suffisent pas, indique-le clairement.\n\n"
+                            + contexte_retrouve
                         )
                     }
                 ]
 
                 messages_api.extend(historique)
 
-                messages_api.append(
-                    {
-                        "role": "user",
-                        "content": question.strip()
-                    }
-                )
-
+                messages_api.append({
+                    "role": "user",
+                    "content": question.strip()
+                })
+                
                 try:
                     client = Groq(api_key=api_key)
 
