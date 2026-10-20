@@ -235,6 +235,18 @@ Règles impératives :
                         "pour répondre à cette question dans le document."
                     )
                     st.stop()
+                
+                # Afficher les sources utilisées pour la réponse
+                with st.expander(
+                    f"🔎 Voir les {len(passages)} passages utilisés"
+                ):
+                    for numero, passage in enumerate(passages, start=1):
+                        st.markdown(
+                        f"**Passage {numero} — Page {passage['page']}**"
+                        )
+                        st.write(passage["text"])
+                        st.divider()
+
 
                 contexte_retrouve = "\n\n".join(
                     f"[Page {passage['page']}]\n{passage['text']}"
