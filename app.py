@@ -4,7 +4,8 @@ import hashlib
 import streamlit as st
 import pymupdf
 from groq import Groq
-
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
 
 # --------------------------------------------------
 # 1. Configuration
@@ -20,6 +21,10 @@ MODEL = "openai/gpt-oss-20b"
 MAX_CONTEXT_CHARS = 10000
 MAX_HISTORY_MESSAGES = 4
 MAX_OUTPUT_TOKENS = 1000
+
+CHUNK_SIZE = 1000
+CHUNK_OVERLAP = 150
+MAX_RETRIEVED_CHUNKS = 4
 
 st.title("📚 PDF Intelligent")
 st.subheader("Comprendre un article scientifique plus rapidement")
