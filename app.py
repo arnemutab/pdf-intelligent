@@ -175,6 +175,7 @@ if uploaded_file:
                 type="primary"
             )
 
+
         if envoyer:
             if not question.strip():
                 st.warning("Veuillez saisir une question.")
@@ -186,18 +187,57 @@ if uploaded_file:
                 )
 
             else:
-                # Afficher la question immédiatement.
-                st.session_state["chat_messages"].append(
-                    {
-                        "role": "user",
-                        "content": question.strip()
-                    }
-                )
+                question_utilisateur = question.strip()
+
+                # Enregistrer et afficher la question
+                st.session_state["chat_messages"].append({
+                    "role": "user",
+                    "content": question_utilisateur
+                })
 
                 with st.chat_message("user"):
-                    st.markdown(question.strip())
+                    st.markdown(question_utilisateur)
 
-                system_prompt = """
+                # Rechercher les passages pertinents du PDF
+                passages = rechercher_passages(
+                    question_utilisateur,
+                    chunks_pdf
+                )
+
+                if not passages:
+                    reponse = (
+                        "Je n'ai pas trouvé de passage suffisamment pertinent "
+                        "pour répondre à cette question dans le document. "
+                        "Essayez de reformuler votre question."
+                    )
+
+                    st.warning(reponse)
+
+                    # Conserver le message dans l'historique
+                    st.session_state["chat_messages"].append({
+                        "role": "assistant",
+                        "content": reponse
+                    })
+
+                else:
+                    # Afficher les sources utilisées pour la réponse
+                    with st.expander(
+                        f"🔎 Voir les {len(passages)} passages utilisés"
+                    ):
+                        for numero, passage in enumerate(passages, start=1):
+                            st.markdown(
+                                f"**Passage {numero} — Page {passage['page']}**"
+                            )
+                            st.write(passage["text"])
+                            st.divider()
+
+                    # Construire le contexte avec les numéros de page
+                    contexte_retrouve = "\n\n".join(
+                        f"[Page {passage['page']}]\n{passage['text']}"
+                        for passage in passages
+                    )
+
+                    system_prompt = """
 Tu es Smart PDF, un assistant d'analyse scientifique rigoureux.
 
 Tu réponds en français en t'appuyant sur le texte du PDF fourni.
@@ -213,120 +253,81 @@ Règles impératives :
 - Réponds clairement et de façon structurée.
 """
 
-                # Conserver au maximum les derniers échanges.
-                historique = st.session_state["chat_messages"][:-1][-MAX_HISTORY_MESSAGES:]
-
-                historique = [
-                    {
-                        "role": message["role"],
-                         "content": message["content"][:1500]
-                    }
-                    for message in historique
-                ]
-
-                passages = rechercher_passages(
-                    question.strip(),
-                    chunks_pdf
-                )
-
-                if not passages:
-                    st.warning(
-                       "Je n'ai pas trouvé de passage suffisamment pertinent "
-                        "pour répondre à cette question dans le document."
+                    # Préparer l'historique des échanges précédents
+                    historique = (
+                        st.session_state["chat_messages"][:-1]
+                        [-MAX_HISTORY_MESSAGES:]
                     )
-                    st.stop()
-                
-                # Afficher les sources utilisées pour la réponse
-                with st.expander(
-                    f"🔎 Voir les {len(passages)} passages utilisés"
-                ):
-                    for numero, passage in enumerate(passages, start=1):
-                        st.markdown(
-                        f"**Passage {numero} — Page {passage['page']}**"
-                        )
-                        st.write(passage["text"])
-                        st.divider()
 
-
-                contexte_retrouve = "\n\n".join(
-                    f"[Page {passage['page']}]\n{passage['text']}"
-                    for passage in passages
-                )
-
-                historique = st.session_state["chat_messages"][:-1][
-                    -MAX_HISTORY_MESSAGES:
-                ]
-
-                historique = [
-                    {
-                        "role": message["role"],
-                        "content": message["content"][:1500]
-                    }
-                    for message in historique
-                ]
-
-                messages_api = [
-                    {
-                        "role": "system",
-                        "content": system_prompt
-                    },
-                    {
-                        "role": "user",
-                        "content": (
-                            "Voici les passages sélectionnés dans l'article. "
-                            "Réponds uniquement à partir de ces extraits. "
-                            "Cite les pages sous la forme [Page N]. "
-                            "Si les extraits ne suffisent pas, indique-le clairement.\n\n"
-                            + contexte_retrouve
-                        )
-                    }
-                ]
-
-                messages_api.extend(historique)
-
-                messages_api.append({
-                    "role": "user",
-                    "content": question.strip()
-                })
-                
-                try:
-                    client = Groq(api_key=api_key)
-
-                    with st.chat_message("assistant"):
-                        with st.spinner("Analyse du document en cours..."):
-                            response = client.chat.completions.create(
-                                model=MODEL,
-                                messages=messages_api,
-                                temperature=0.2,
-                                max_completion_tokens=MAX_OUTPUT_TOKENS
-                            )
-
-                        reponse = response.choices[0].message.content
-
-                        if not reponse:
-                            reponse = (
-                                "Aucune réponse n'a été retournée. "
-                                "Veuillez réessayer."
-                            )
-
-                        st.markdown(reponse)
-
-                    st.session_state["chat_messages"].append(
+                    historique = [
                         {
+                            "role": message["role"],
+                            "content": message["content"][:1500]
+                        }
+                        for message in historique
+                    ]
+
+                    messages_api = [
+                        {
+                            "role": "system",
+                            "content": system_prompt
+                        },
+                        {
+                            "role": "user",
+                            "content": (
+                                "Voici les passages sélectionnés dans l'article. "
+                                "Réponds uniquement à partir de ces extraits. "
+                                "Cite les pages sous la forme [Page N]. "
+                                "Si les extraits ne suffisent pas, indique-le clairement.\n\n"
+                                + contexte_retrouve
+                            )
+                        }
+                    ]
+
+                    messages_api.extend(historique)
+
+                    messages_api.append({
+                        "role": "user",
+                        "content": question_utilisateur
+                    })
+
+                    # Appeler Groq uniquement si des passages existent
+                    try:
+                        client = Groq(api_key=api_key)
+
+                        with st.chat_message("assistant"):
+                            with st.spinner("Analyse du document en cours..."):
+                                response = client.chat.completions.create(
+                                    model=MODEL,
+                                    messages=messages_api,
+                                    temperature=0.2,
+                                    max_completion_tokens=MAX_OUTPUT_TOKENS
+                                )
+
+                            reponse = response.choices[0].message.content
+
+                            if not reponse:
+                                reponse = (
+                                    "Aucune réponse n'a été retournée. "
+                                    "Veuillez réessayer."
+                                )
+
+                            st.markdown(reponse)
+
+                        # Enregistrer la réponse dans l'historique
+                        st.session_state["chat_messages"].append({
                             "role": "assistant",
                             "content": reponse
-                        }
-                    )
+                        })
 
-                    
-                except Exception as e:
-                    st.error("Échec de la génération de la réponse.")
-                    st.write("Type d'erreur :", type(e).__name__)
+                    except Exception as e:
+                        st.error("Échec de la génération de la réponse.")
+                        st.write("Type d'erreur :", type(e).__name__)
 
-                    if hasattr(e, "status_code"):
-                        st.write("Code HTTP :", e.status_code)
+                        if hasattr(e, "status_code"):
+                            st.write("Code HTTP :", e.status_code)
 
-                    st.code(str(e)[:1500])
+                        st.code(str(e)[:1500])
 
 
         if st.button("Effacer la conversation"):
