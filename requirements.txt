@@ -2,3 +2,4 @@ streamlit
 pymupdf
 groq
 scikit-learn
+rank-bm25
