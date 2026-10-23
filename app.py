@@ -6,6 +6,8 @@ import pymupdf
 from groq import Groq
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
+import re
+from rank_bm25 import BM25Okapi
 
 # --------------------------------------------------
 # 1. Configuration
@@ -36,44 +38,129 @@ st.write(
 api_key = st.secrets.get("GROQ_API_KEY", "")
 
 
+
 def rechercher_passages(question, chunks_pdf):
-    if not chunks_pdf:
+    if not chunks_pdf or not question.strip():
+        return []
+
+    # Garder les passages et leurs numéros de page.
+    chunks_valides = [
+        chunk for chunk in chunks_pdf
+        if chunk.get("text", "").strip()
+    ]
+
+    if not chunks_valides:
         return []
 
     documents = [
-        chunk["text"] for chunk in chunks_pdf
+        chunk["text"].strip()
+        for chunk in chunks_valides
     ]
 
-    vectorizer = TfidfVectorizer(
-        lowercase=True,
-        strip_accents="unicode",
-        ngram_range=(1, 2),
-        sublinear_tf=True
+    # Découper le texte en termes pour BM25.
+    def tokeniser(texte):
+        return re.findall(r"\b\w+\b", texte.lower())
+
+    question_tokens = tokeniser(question)
+
+    if not question_tokens:
+        return []
+
+    corpus_tokenise = [
+        tokeniser(document)
+        for document in documents
+    ]
+
+    # Ne pas poursuivre si aucun terme de la question
+    # n'apparaît dans les passages.
+    termes_question = set(question_tokens)
+
+    candidats = [
+        i for i, tokens in enumerate(corpus_tokenise)
+        if termes_question.intersection(tokens)
+    ]
+
+    if not candidats:
+        return []
+
+    # 1. Recherche BM25.
+    bm25 = BM25Okapi(corpus_tokenise)
+    scores_bm25 = bm25.get_scores(question_tokens)
+
+    # 2. Recherche TF-IDF.
+    try:
+        vectorizer = TfidfVectorizer(
+            lowercase=True,
+            strip_accents="unicode",
+            ngram_range=(1, 2),
+            sublinear_tf=True,
+        )
+
+        matrice = vectorizer.fit_transform(
+            documents + [question]
+        )
+
+        scores_tfidf = cosine_similarity(
+            matrice[-1],
+            matrice[:-1]
+        ).ravel()
+
+    except ValueError:
+        scores_tfidf = [0.0] * len(documents)
+
+    # 3. Classement combiné par fusion des rangs.
+    # Un passage bien classé par les deux méthodes
+    # remonte dans les résultats.
+    rang_bm25 = sorted(
+        candidats,
+        key=lambda i: scores_bm25[i],
+        reverse=True,
     )
 
-    matrice = vectorizer.fit_transform(
-        documents + [question]
+    rang_tfidf = sorted(
+        candidats,
+        key=lambda i: scores_tfidf[i],
+        reverse=True,
     )
 
-    scores = cosine_similarity(
-        matrice[-1],
-        matrice[:-1]
-    ).ravel()
+    position_bm25 = {
+        index: rang + 1
+        for rang, index in enumerate(rang_bm25)
+    }
 
-    meilleurs_indices = scores.argsort()[::-1]
+    position_tfidf = {
+        index: rang + 1
+        for rang, index in enumerate(rang_tfidf)
+    }
 
+    scores_combines = {}
+
+    for index in candidats:
+        score = (
+            1 / (60 + position_bm25[index])
+            + 1 / (60 + position_tfidf[index])
+        )
+
+        scores_combines[index] = score
+
+    meilleurs_indices = sorted(
+        candidats,
+        key=lambda i: scores_combines[i],
+        reverse=True,
+    )
+
+    # 4. Retourner au maximum quatre passages.
     passages = []
 
-    for index in meilleurs_indices:
-        if scores[index] <= 0:
-            break
-
-        passages.append(chunks_pdf[index])
-
-        if len(passages) >= MAX_RETRIEVED_CHUNKS:
-            break
+    for index in meilleurs_indices[:MAX_RETRIEVED_CHUNKS]:
+        passage = dict(chunks_valides[index])
+        passage["score_pertinence"] = round(
+            scores_combines[index], 5
+        )
+        passages.append(passage)
 
     return passages
+
 # --------------------------------------------------
 # 2. Importation et extraction du PDF
 # --------------------------------------------------
