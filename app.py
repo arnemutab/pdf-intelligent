@@ -300,21 +300,21 @@ if uploaded_file:
 
         if textes_chunks:
 
-        embeddings_pdf = creer_embeddings(
-            textes_chunks,
-            document_id
-        )
-
-        index_faiss = construire_index_faiss(
-            embeddings_pdf,
-            document_id
-        )
-
-        if index_faiss is not None:
-            st.success(
-                f"Index FAISS créé : "
-                f"{index_faiss.ntotal} vecteurs indexés."
+            embeddings_pdf = creer_embeddings(
+                textes_chunks,
+                document_id
             )
+
+            index_faiss = construire_index_faiss(
+                embeddings_pdf,
+                document_id
+            )
+
+            if index_faiss is not None:
+               st.success(
+                    f"Index FAISS créé : "
+                    f"{index_faiss.ntotal} vecteurs indexés."
+                )
 
         else:
             index_faiss = None
