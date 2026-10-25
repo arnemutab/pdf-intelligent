@@ -599,6 +599,18 @@ Règles supplémentaires de citation :
   que la réponse ne peut pas être établie.
 - Ne présente pas une hypothèse comme un résultat démontré.
 
+
+Règles de citation pour chaque nouvelle réponse :
+- Cite uniquement les numéros de page présents
+  dans les passages fournis pour la question actuelle.
+- N'utilise pas les citations des réponses précédentes
+  si elles ne figurent pas dans les passages actuels.
+- L'historique sert uniquement à comprendre la conversation.
+- Si aucune source actuelle ne soutient une affirmation,
+  indique que l'information n'est pas disponible.
+- Ne crée jamais de numéro de page.
+
+
 """
 
                     # Préparer l'historique des échanges précédents
