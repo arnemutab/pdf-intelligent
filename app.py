@@ -405,18 +405,14 @@ if uploaded_file:
                 st.markdown(message["content"])
 
         # Formulaire : un envoi explicite déclenche l'appel API.
-        with st.form("pdf_chat_form", clear_on_submit=True):
-            question = st.text_input(
-                "Votre question",
-                placeholder=(
-                    "Ex. : Quelle méthodologie les auteurs utilisent-ils ?"
-                )
-            )
+        
+        # Zone de saisie du chat
+        question = st.chat_input(
+            "Posez une question sur votre PDF..."
+        )
 
-            envoyer = st.form_submit_button(
-                "Envoyer",
-                type="primary"
-            )
+        envoyer = question is not None
+
 
 
         if envoyer:
