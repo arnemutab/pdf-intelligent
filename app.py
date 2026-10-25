@@ -461,17 +461,17 @@ Texte de l'article :
         # Afficher le résumé enregistré, même après une interaction
         if st.session_state.get("resume_scientifique"):
 
-        resume = st.session_state["resume_scientifique"]
+            resume = st.session_state["resume_scientifique"]
 
-        st.markdown("### Résultat de l'analyse")
-        st.markdown(resume)
+            st.markdown("### Résultat de l'analyse")
+            st.markdown(resume)
 
-        st.download_button(
-            "Télécharger le résumé",
-            data=resume,
-            file_name="resume_scientifique.md",
-            mime="text/markdown"
-        )
+            st.download_button(
+                "Télécharger le résumé",
+                data=resume,
+                file_name="resume_scientifique.md",
+                mime="text/markdown"
+            )
 
 
         # --------------------------------------------------
