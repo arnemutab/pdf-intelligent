@@ -711,15 +711,8 @@ Texte de l'article :
                         "le modèle et les limites du service."
                     )
 
-    except Exception:
-        st.error(
-            "Une erreur est survenue pendant le traitement du PDF."
-        )
+     
+    except Exception as e:
+        st.error("Erreur pendant le traitement du document.")
+        st.exception(e)
 
-        st.write("Type d'erreur :", type(e).__name__)
-
-        st.write("Détail de l'erreur :")
-        st.code(str(e))
-
-        with st.expander("Détails techniques"):
-            st.exception(e)
