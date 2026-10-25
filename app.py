@@ -29,6 +29,7 @@ MAX_OUTPUT_TOKENS = 1000
 CHUNK_SIZE = 1000
 CHUNK_OVERLAP = 150
 MAX_RETRIEVED_CHUNKS = 4
+MIN_SIMILARITY = 0.30
 
 st.title("📚 PDF Intelligent")
 st.subheader("Comprendre un article scientifique plus rapidement")
@@ -138,9 +139,20 @@ def rechercher_passages(
         vecteur_question, k
     )
 
+    
+    # Conserver les scores de similarité FAISS
+    similarites = {
+        int(i): float(score)
+        for i, score in zip(indices[0], distances[0])
+        if i >= 0
+    }
+
+    # Garder les passages suffisamment similaires
     rang_faiss = [
-        int(i) for i in indices[0] if i >= 0
+        i for i in similarites
+        if similarites[i] >= MIN_SIMILARITY
     ]
+
 
     # 2. Recherche lexicale BM25
     def tokeniser(texte):
@@ -182,11 +194,38 @@ def rechercher_passages(
             + 1 / (60 + rang + 1)
         )
 
+    
+    # Filtrer les candidats avec leur similarité sémantique
+    candidats_pertinents = []
+
+    # Évaluer aussi les candidats provenant de BM25
+    indices_a_verifier = list(scores_rrf.keys())
+
+    if indices_a_verifier:
+        vecteurs_candidats = index_faiss.reconstruct_batch(
+            __import__("numpy").asarray(
+                indices_a_verifier,
+                dtype="int64"
+           )
+        )
+
+        scores_semantiques = (
+            vecteurs_candidats @ vecteur_question[0]
+        )
+
+        for index, score in zip(
+            indices_a_verifier,
+            scores_semantiques
+        ):
+            if float(score) >= MIN_SIMILARITY:
+                candidats_pertinents.append(index)
+
     meilleurs_indices = sorted(
-        scores_rrf,
-        key=scores_rrf.get,
+        candidats_pertinents,
+        key=lambda i: scores_rrf[i],
         reverse=True
     )[:nombre]
+
 
     # 4. Conserver les pages et les textes
     passages = []
@@ -414,6 +453,16 @@ Règles impératives :
 - Si une information est absente du contexte fourni, précise-le.
 - Distingue les résultats rapportés par les auteurs de tes explications.
 - Réponds clairement et de façon structurée.
+
+Règles supplémentaires de citation :
+- Chaque affirmation scientifique importante doit être
+  accompagnée d'une référence de page.
+- Cite uniquement les pages présentes dans les extraits fournis.
+- N'attribue pas une affirmation à une page qui ne la soutient pas.
+- Si les passages sont insuffisants, indique clairement
+  que la réponse ne peut pas être établie.
+- Ne présente pas une hypothèse comme un résultat démontré.
+
 """
 
                     # Préparer l'historique des échanges précédents
@@ -473,6 +522,43 @@ Règles impératives :
                                 reponse = (
                                     "Aucune réponse n'a été retournée. "
                                     "Veuillez réessayer."
+                                )
+
+                            
+                            # Vérifier les numéros de page cités
+                            pages_autorisees = {
+                                passage["page"] for passage in passages
+                            }
+
+                            pages_citees = {
+                                int(numero)
+                                for numero in re.findall(
+                                    r"\[Page\s+(\d+)\]",
+                                    reponse,
+                                    flags=re.IGNORECASE
+                                )
+                            }
+
+                            pages_invalides = (
+                                pages_citees - pages_autorisees
+                            )
+
+                            if pages_invalides:
+                                st.warning(
+                                    "Attention : certaines références de page "
+                                    "n'ont pas été retrouvées dans les passages "
+                                    "utilisés pour générer la réponse."
+                                )
+
+                                reponse = re.sub(
+                                    r"\[Page\s+(\d+)\]",
+                                    lambda match: (
+                                        match.group(0)
+                                        if int(match.group(1)) in pages_autorisees
+                                        else "[Référence non vérifiée]"
+                                    ),
+                                    reponse,
+                                    flags=re.IGNORECASE
                                 )
 
                             st.markdown(reponse)
