@@ -399,9 +399,21 @@ if uploaded_file:
                 with st.chat_message("user"):
                     st.markdown(question_utilisateur)
 
-                # Rechercher les passages pertinents du PDF
-                passages = rechercher_passages(
+                
+                # Récupérer l'historique avant la question actuelle
+                historique_recherche = (
+                    st.session_state["chat_messages"][:-1]
+                )
+
+                # Contextualiser la question pour la recherche
+                question_recherche = contextualiser_question(
                     question_utilisateur,
+                    historique_recherche
+                )
+
+                # Recherche hybride FAISS + BM25
+                passages = rechercher_passages(
+                    question_recherche,
                     chunks_pdf,
                     index_faiss
                 )
