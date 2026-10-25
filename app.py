@@ -94,9 +94,51 @@ def construire_index_faiss(vecteurs, document_id):
     return index
 
 
-#--------------------------------------------
-# la recheche des pasages
-#--------------------------------------------
+# --------------------------------------------------
+# Contextualisation des questions de suivi
+# --------------------------------------------------
+
+def contextualiser_question(question, historique):
+    question = question.strip()
+
+    if not historique:
+        return question
+
+    marqueurs_suivi = [
+        "et ", "ses ", "son ", "sa ",
+        "leurs ", "leur ", "cette ",
+        "ce ", "ces ", "celle",
+        "celui", "qu'en est-il", "pourquoi"
+    ]
+
+    question_min = question.lower()
+
+    est_suivi = (
+        len(question.split()) <= 8
+        or any(
+            question_min.startswith(marqueur)
+            for marqueur in marqueurs_suivi
+        )
+    )
+
+    if not est_suivi:
+        return question
+
+    questions_precedentes = [
+        message["content"]
+        for message in historique
+        if message["role"] == "user"
+    ]
+
+    if not questions_precedentes:
+        return question
+
+    derniere_question = questions_precedentes[-1]
+
+    return (
+        f"Contexte : {derniere_question}\n"
+        f"Question actuelle : {question}"
+    )
 
 # --------------------------------------------------
 # Recherche hybride FAISS + BM25
