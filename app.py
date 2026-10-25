@@ -8,6 +8,7 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 import re
 from rank_bm25 import BM25Okapi
+from sentence_transformers import SentenceTransformer
 
 # --------------------------------------------------
 # 1. Configuration
@@ -37,6 +38,33 @@ st.write(
 
 api_key = st.secrets.get("GROQ_API_KEY", "")
 
+
+# --------------------------------------------------
+# Modèle d'embeddings pour le RAG sémantique
+# --------------------------------------------------
+
+@st.cache_resource(show_spinner="Chargement du modèle d'embeddings...")
+def charger_modele_embeddings():
+    modele = SentenceTransformer(
+        "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        device="cpu"
+    )
+    return modele
+
+
+@st.cache_data(show_spinner="Création des embeddings du PDF...")
+def creer_embeddings(textes, document_id):
+    modele = charger_modele_embeddings()
+
+    vecteurs = modele.encode(
+        list(textes),
+        batch_size=16,
+        convert_to_numpy=True,
+        normalize_embeddings=True,
+        show_progress_bar=False
+    )
+
+    return vecteurs.astype("float32")
 
 
 def rechercher_passages(question, chunks_pdf):
