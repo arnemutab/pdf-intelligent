@@ -671,6 +671,13 @@ Texte de l'article :
 
     except Exception:
         st.error(
-            "Impossible de lire ce fichier PDF. "
-            "Vérifiez qu'il s'agit d'un document PDF valide."
+            "Une erreur est survenue pendant le traitement du PDF."
         )
+
+        st.write("Type d'erreur :", type(e).__name__)
+
+        st.write("Détail de l'erreur :")
+        st.code(str(e))
+
+        with st.expander("Détails techniques"):
+            st.exception(e)
