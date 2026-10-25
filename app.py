@@ -9,6 +9,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 import re
 from rank_bm25 import BM25Okapi
 from sentence_transformers import SentenceTransformer
+import faiss
 
 # --------------------------------------------------
 # 1. Configuration
@@ -66,7 +67,35 @@ def creer_embeddings(textes, document_id):
 
     return vecteurs.astype("float32")
 
+# --------------------------------------------------
+# Construction de l'index vectoriel FAISS
+# --------------------------------------------------
 
+@st.cache_resource(
+    show_spinner="Construction de l'index FAISS..."
+)
+def construire_index_faiss(vecteurs, document_id):
+
+    # Vérifier que les vecteurs existent
+    if vecteurs is None or len(vecteurs) == 0:
+        return None
+
+    # Déterminer la dimension des embeddings
+    dimension = vecteurs.shape[1]
+
+    # Créer un index utilisant la similarité
+    # par produit scalaire
+    index = faiss.IndexFlatIP(dimension)
+
+    # Ajouter les vecteurs à l'index
+    index.add(vecteurs.copy())
+
+    return index
+
+
+#--------------------------------------------
+# la recheche des pasages
+#--------------------------------------------
 def rechercher_passages(question, chunks_pdf):
     if not chunks_pdf or not question.strip():
         return []
@@ -259,6 +288,39 @@ if uploaded_file:
            f"Document prêt : {len(chunks_pdf)} passages indexés."
         )
         
+
+        
+# --------------------------------------------------
+# Préparation de l'index vectoriel du PDF
+# --------------------------------------------------
+
+        textes_chunks = tuple(
+            chunk["text"] for chunk in chunks_pdf
+        )
+
+        if textes_chunks:
+
+        embeddings_pdf = creer_embeddings(
+            textes_chunks,
+            document_id
+        )
+
+        index_faiss = construire_index_faiss(
+            embeddings_pdf,
+            document_id
+        )
+
+        if index_faiss is not None:
+            st.success(
+                f"Index FAISS créé : "
+                f"{index_faiss.ntotal} vecteurs indexés."
+            )
+
+        else:
+            index_faiss = None
+            st.warning(
+                "Aucun passage disponible pour l'indexation."
+            )
 
         # --------------------------------------------------
         # 3. Chat avec le PDF
