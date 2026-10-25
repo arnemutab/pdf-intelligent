@@ -96,127 +96,112 @@ def construire_index_faiss(vecteurs, document_id):
 #--------------------------------------------
 # la recheche des pasages
 #--------------------------------------------
-def rechercher_passages(question, chunks_pdf):
-    if not chunks_pdf or not question.strip():
-        return []
 
-    # Garder les passages et leurs numéros de page.
-    chunks_valides = [
-        chunk for chunk in chunks_pdf
-        if chunk.get("text", "").strip()
-    ]
+# --------------------------------------------------
+# Recherche hybride FAISS + BM25
+# --------------------------------------------------
 
-    if not chunks_valides:
+def rechercher_passages(
+    question,
+    chunks_pdf,
+    index_faiss,
+    nombre=MAX_RETRIEVED_CHUNKS
+):
+    if (
+        not chunks_pdf
+        or not question.strip()
+        or index_faiss is None
+    ):
         return []
 
     documents = [
-        chunk["text"].strip()
-        for chunk in chunks_valides
+        chunk["text"] for chunk in chunks_pdf
     ]
 
-    # Découper le texte en termes pour BM25.
+    if index_faiss.ntotal != len(documents):
+        raise ValueError(
+            "L'index FAISS ne correspond pas aux passages."
+        )
+
+    # 1. Recherche sémantique FAISS
+    modele = charger_modele_embeddings()
+
+    vecteur_question = modele.encode(
+        [question],
+        convert_to_numpy=True,
+        normalize_embeddings=True
+    ).astype("float32")
+
+    k = min(10, index_faiss.ntotal)
+
+    distances, indices = index_faiss.search(
+        vecteur_question, k
+    )
+
+    rang_faiss = [
+        int(i) for i in indices[0] if i >= 0
+    ]
+
+    # 2. Recherche lexicale BM25
     def tokeniser(texte):
-        return re.findall(r"\b\w+\b", texte.lower())
+        return re.findall(
+            r"\b\w+\b", texte.lower()
+        )
 
-    question_tokens = tokeniser(question)
-
-    if not question_tokens:
-        return []
-
-    corpus_tokenise = [
-        tokeniser(document)
-        for document in documents
+    corpus = [
+        tokeniser(doc) for doc in documents
     ]
 
-    # Ne pas poursuivre si aucun terme de la question
-    # n'apparaît dans les passages.
-    termes_question = set(question_tokens)
+    rang_bm25 = []
 
-    candidats = [
-        i for i, tokens in enumerate(corpus_tokenise)
-        if termes_question.intersection(tokens)
-    ]
+    if any(corpus):
+        bm25 = BM25Okapi(corpus)
 
-    if not candidats:
-        return []
-
-    # 1. Recherche BM25.
-    bm25 = BM25Okapi(corpus_tokenise)
-    scores_bm25 = bm25.get_scores(question_tokens)
-
-    # 2. Recherche TF-IDF.
-    try:
-        vectorizer = TfidfVectorizer(
-            lowercase=True,
-            strip_accents="unicode",
-            ngram_range=(1, 2),
-            sublinear_tf=True,
+        scores_bm25 = bm25.get_scores(
+            tokeniser(question)
         )
 
-        matrice = vectorizer.fit_transform(
-            documents + [question]
+        rang_bm25 = sorted(
+            range(len(documents)),
+            key=lambda i: scores_bm25[i],
+            reverse=True
+        )[:10]
+
+    # 3. Fusion des rangs RRF
+    scores_rrf = {}
+
+    for rang, index in enumerate(rang_faiss):
+        scores_rrf[index] = (
+            scores_rrf.get(index, 0)
+            + 1 / (60 + rang + 1)
         )
 
-        scores_tfidf = cosine_similarity(
-            matrice[-1],
-            matrice[:-1]
-        ).ravel()
-
-    except ValueError:
-        scores_tfidf = [0.0] * len(documents)
-
-    # 3. Classement combiné par fusion des rangs.
-    # Un passage bien classé par les deux méthodes
-    # remonte dans les résultats.
-    rang_bm25 = sorted(
-        candidats,
-        key=lambda i: scores_bm25[i],
-        reverse=True,
-    )
-
-    rang_tfidf = sorted(
-        candidats,
-        key=lambda i: scores_tfidf[i],
-        reverse=True,
-    )
-
-    position_bm25 = {
-        index: rang + 1
-        for rang, index in enumerate(rang_bm25)
-    }
-
-    position_tfidf = {
-        index: rang + 1
-        for rang, index in enumerate(rang_tfidf)
-    }
-
-    scores_combines = {}
-
-    for index in candidats:
-        score = (
-            1 / (60 + position_bm25[index])
-            + 1 / (60 + position_tfidf[index])
+    for rang, index in enumerate(rang_bm25):
+        scores_rrf[index] = (
+            scores_rrf.get(index, 0)
+            + 1 / (60 + rang + 1)
         )
-
-        scores_combines[index] = score
 
     meilleurs_indices = sorted(
-        candidats,
-        key=lambda i: scores_combines[i],
-        reverse=True,
-    )
+        scores_rrf,
+        key=scores_rrf.get,
+        reverse=True
+    )[:nombre]
 
-    # 4. Retourner au maximum quatre passages.
+    # 4. Conserver les pages et les textes
     passages = []
 
-    for index in meilleurs_indices[:MAX_RETRIEVED_CHUNKS]:
-        passage = dict(chunks_valides[index])
+    for index in meilleurs_indices:
+        passage = dict(chunks_pdf[index])
+
         passage["score_pertinence"] = round(
-            scores_combines[index], 5
+            scores_rrf[index], 5
         )
+
         passages.append(passage)
 
     return passages
+
 
 # --------------------------------------------------
 # 2. Importation et extraction du PDF
@@ -378,7 +363,8 @@ if uploaded_file:
                 # Rechercher les passages pertinents du PDF
                 passages = rechercher_passages(
                     question_utilisateur,
-                    chunks_pdf
+                    chunks_pdf,
+                    index_faiss
                 )
 
                 if not passages:
