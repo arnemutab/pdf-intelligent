@@ -389,6 +389,80 @@ if uploaded_file:
             )
 
         # --------------------------------------------------
+        # 4. Analyse scientifique existante
+        # --------------------------------------------------
+
+        st.markdown("---")
+        st.subheader("📝 Analyse scientifique")
+
+        if st.button("Analyser mon article", type="primary"):
+            if not api_key:
+                st.error("Clé API Groq manquante.")
+
+            else:
+                prompt = f"""
+Analyse cet article scientifique en français.
+
+Présente les rubriques suivantes :
+1. Sujet et objectif
+2. Problématique
+3. Méthodologie
+4. Résultats principaux
+5. Limites de l'étude
+6. Cinq mots-clés
+
+N'invente aucune information.
+Pour toute information absente, écris :
+"Non précisé dans le texte".
+
+Cite les pages lorsque cela est possible.
+Le texte ci-dessous peut être incomplet si le PDF est long.
+
+Texte de l'article :
+{texte[:12000]}
+"""
+
+                try:
+                    client = Groq(api_key=api_key)
+
+                    with st.spinner("Analyse en cours..."):
+                        response = client.chat.completions.create(
+                            model=MODEL,
+                            messages=[
+                                {
+                                    "role": "system",
+                                    "content": (
+                                        "Tu es un assistant d'analyse "
+                                        "scientifique rigoureux."
+                                    )
+                                },
+                                {
+                                    "role": "user",
+                                    "content": prompt
+                                }
+                            ],
+                            temperature=0.2
+                        )
+
+                    resume = response.choices[0].message.content
+
+                    st.markdown("### Résultat de l'analyse")
+                    st.markdown(resume)
+
+                    st.download_button(
+                        "Télécharger le résumé",
+                        data=resume,
+                        file_name="resume_scientifique.md",
+                        mime="text/markdown"
+                    )
+
+                except Exception:
+                    st.error(
+                        "L'analyse a échoué. Vérifiez la clé API, "
+                        "le modèle et les limites du service."
+                    )
+
+        # --------------------------------------------------
         # 3. Chat avec le PDF
         # --------------------------------------------------
 
@@ -633,80 +707,7 @@ Règles supplémentaires de citation :
             st.session_state["chat_messages"] = []
             st.rerun()
 
-        # --------------------------------------------------
-        # 4. Analyse scientifique existante
-        # --------------------------------------------------
-
-        st.markdown("---")
-        st.subheader("📝 Analyse scientifique")
-
-        if st.button("Analyser mon article", type="primary"):
-            if not api_key:
-                st.error("Clé API Groq manquante.")
-
-            else:
-                prompt = f"""
-Analyse cet article scientifique en français.
-
-Présente les rubriques suivantes :
-1. Sujet et objectif
-2. Problématique
-3. Méthodologie
-4. Résultats principaux
-5. Limites de l'étude
-6. Cinq mots-clés
-
-N'invente aucune information.
-Pour toute information absente, écris :
-"Non précisé dans le texte".
-
-Cite les pages lorsque cela est possible.
-Le texte ci-dessous peut être incomplet si le PDF est long.
-
-Texte de l'article :
-{texte[:12000]}
-"""
-
-                try:
-                    client = Groq(api_key=api_key)
-
-                    with st.spinner("Analyse en cours..."):
-                        response = client.chat.completions.create(
-                            model=MODEL,
-                            messages=[
-                                {
-                                    "role": "system",
-                                    "content": (
-                                        "Tu es un assistant d'analyse "
-                                        "scientifique rigoureux."
-                                    )
-                                },
-                                {
-                                    "role": "user",
-                                    "content": prompt
-                                }
-                            ],
-                            temperature=0.2
-                        )
-
-                    resume = response.choices[0].message.content
-
-                    st.markdown("### Résultat de l'analyse")
-                    st.markdown(resume)
-
-                    st.download_button(
-                        "Télécharger le résumé",
-                        data=resume,
-                        file_name="resume_scientifique.md",
-                        mime="text/markdown"
-                    )
-
-                except Exception:
-                    st.error(
-                        "L'analyse a échoué. Vérifiez la clé API, "
-                        "le modèle et les limites du service."
-                    )
-
+        
      
     except Exception as e:
         st.error("Erreur pendant le traitement du document.")
