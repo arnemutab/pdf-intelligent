@@ -40,7 +40,9 @@ st.write(
 
 api_key = st.secrets.get("GROQ_API_KEY", "")
 
-
+# Conserver le résumé scientifique
+if "resume_scientifique" not in st.session_state:
+    st.session_state["resume_scientifique"] = None
 # --------------------------------------------------
 # Modèle d'embeddings pour le RAG sémantique
 # --------------------------------------------------
@@ -325,6 +327,7 @@ if uploaded_file:
         if st.session_state.get("document_id") != document_id:
             st.session_state["document_id"] = document_id
             st.session_state["chat_messages"] = []
+            st.session_state["resume_scientifique"] = None
 
         # Préparer le contexte avec les numéros de page.
         # Préparer les passages du PDF en conservant les pages.
@@ -445,22 +448,31 @@ Texte de l'article :
                         )
 
                     resume = response.choices[0].message.content
+                    st.session_state["resume_scientifique"] = resume
 
-                    st.markdown("### Résultat de l'analyse")
-                    st.markdown(resume)
-
-                    st.download_button(
-                        "Télécharger le résumé",
-                        data=resume,
-                        file_name="resume_scientifique.md",
-                        mime="text/markdown"
-                    )
+                   
 
                 except Exception:
                     st.error(
                         "L'analyse a échoué. Vérifiez la clé API, "
                         "le modèle et les limites du service."
                     )
+            
+        # Afficher le résumé enregistré, même après une interaction
+        if st.session_state.get("resume_scientifique"):
+
+        resume = st.session_state["resume_scientifique"]
+
+        st.markdown("### Résultat de l'analyse")
+        st.markdown(resume)
+
+        st.download_button(
+            "Télécharger le résumé",
+            data=resume,
+            file_name="resume_scientifique.md",
+            mime="text/markdown"
+        )
+
 
         # --------------------------------------------------
         # 3. Chat avec le PDF
