@@ -110,13 +110,24 @@ def contextualiser_question(question, historique):
     question_min = question.lower()
 
     marqueurs_suivi = [
-        "et ", "ses ", "son ", "sa ", "leurs ", "leur ",
-        "cette ", "ce ", "ces ", "celle", "celui",
-        "qu'en est-il", "pourquoi", "peux-tu préciser",
-        "peux tu préciser", "peux-tu détailler",
-        "peux tu détailler", "que viens-tu de mentionner",
-        "que tu viens de mentionner", "ces résultats",
-        "les résultats que tu viens"
+         # Français
+    "et ", "ses ", "son ", "sa ", "leurs ", "leur ",
+    "cette ", "ce ", "ces ", "celle", "celui",
+    "qu'en est-il", "pourquoi", "peux-tu préciser",
+    "peux tu préciser", "peux-tu détailler",
+    "peux tu détailler", "que viens-tu de mentionner",
+    "que tu viens de mentionner", "ces résultats",
+    "les résultats que tu viens",
+
+    # Anglais
+    "and ", "its ", "their ", "this ", "that ",
+    "these ", "those ", "it ", "they ",
+    "why ", "what about", "can you clarify",
+    "could you clarify", "can you elaborate",
+    "could you elaborate", "explain further",
+    "the results you mentioned",
+    "those results", "what did you mean",
+    "tell me more", "how about"
     ]
 
     est_suivi = (
