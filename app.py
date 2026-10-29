@@ -743,24 +743,48 @@ Règles de citation pour chaque nouvelle réponse :
                         })
 
                     
+                    
                     except Exception as e:
-                        st.error("Échec de la génération de la réponse.")
+                        st.error(
+                            "Je n’ai pas pu générer la réponse. "
+                            "Vous pouvez réessayer."
+                        )
 
-                        # Retirer la question si elle est toujours le dernier message
+                        # Retirer la question si elle est
+                        # toujours le dernier message
                         if (
                             st.session_state["chat_messages"]
                             and st.session_state["chat_messages"][-1]["role"] == "user"
-                            and st.session_state["chat_messages"][-1]["content"] == question_utilisateur
+                            and st.session_state["chat_messages"][-1]["content"]
+                            == question_utilisateur
                         ):
                             st.session_state["chat_messages"].pop()
 
-                        st.write("Type d'erreur :", type(e).__name__)
+                        # Conserver les détails pour le débogage
+                        # dans les journaux de l'application
+                        print(
+                            f"Erreur du chat : "
+                            f"{type(e).__name__}: {e}"
+                        )
 
-                        if hasattr(e, "status_code"):
-                            st.write("Code HTTP :", e.status_code)
+                        code_http = getattr(e, "status_code", None)
 
-                        st.code(str(e)[:1500])
-
+                        if code_http == 413:
+                            st.info(
+                                "La demande est trop volumineuse. "
+                                "Essayez une question plus courte "
+                                "ou effacez la conversation."
+                            )
+                        elif code_http == 429:
+                            st.info(
+                                "Le service IA est temporairement "
+                                "limité. Attendez un peu avant de réessayer."
+                            )
+                        elif code_http in (401, 403):
+                            st.info(
+                                "Le service IA n’a pas autorisé la demande. "
+                                "La configuration doit être vérifiée."
+                            )
 
 
         if st.button("Effacer la conversation"):
