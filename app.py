@@ -29,7 +29,7 @@ MAX_OUTPUT_TOKENS = 1000
 CHUNK_SIZE = 1000
 CHUNK_OVERLAP = 150
 MAX_RETRIEVED_CHUNKS = 4
-MIN_SIMILARITY = 0.20
+MIN_SIMILARITY = 0.30
 
 st.title("📚 PDF Intelligent")
 st.subheader("Comprendre un article scientifique plus rapidement")
@@ -653,30 +653,28 @@ Règles de citation pour chaque nouvelle réponse :
                         }
                         for message in historique
                     ]
-
+                    
                     messages_api = [
-                        {
-                            "role": "system",
-                            "content": system_prompt
-                        },
-                        {
-                            "role": "user",
-                            "content": (
-                                "Voici les passages sélectionnés dans l'article. "
-                                "Réponds uniquement à partir de ces extraits. "
-                                "Cite les pages sous la forme [Page N]. "
-                                "Si les extraits ne suffisent pas, indique-le clairement.\n\n"
-                                + contexte_retrouve
-                            )
-                        }
+                        {"role": "system", "content": system_prompt}
                     ]
 
+                    # Ajouter les échanges précédents
                     messages_api.extend(historique)
 
+                    # Ajouter le contexte du PDF et la question actuelle
                     messages_api.append({
                         "role": "user",
-                        "content": question_utilisateur
+                        "content": (
+                            "Voici les passages sélectionnés dans l'article "
+                            "pour cette question.\n"
+                            "Réponds uniquement à partir de ces extraits. "
+                            "Cite les pages sous la forme [Page N]. "
+                            "Si les extraits ne suffisent pas, indique-le clairement.\n\n"
+                            f"Passages du document :\n{contexte_retrouve}\n\n"
+                            f"Question actuelle :\n{question_utilisateur}"
+                        )
                     })
+
 
                     # Appeler Groq uniquement si des passages existent
                     try:
