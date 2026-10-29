@@ -603,7 +603,9 @@ Texte de l'article :
                     system_prompt = """
 Tu es Smart PDF, un assistant d'analyse scientifique rigoureux.
 
-Tu réponds en français en t'appuyant sur le texte du PDF fourni.
+Tu réponds dans la même langue que celle utilisée dans la question de l'utilisateur :
+- Si la question est en français, réponds en français.
+- If the question is in English, answer in English.
 
 Règles impératives :
 - Utilise uniquement les informations disponibles dans le document.
