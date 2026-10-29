@@ -100,47 +100,61 @@ def construire_index_faiss(vecteurs, document_id):
 # Contextualisation des questions de suivi
 # --------------------------------------------------
 
+
 def contextualiser_question(question, historique):
     question = question.strip()
 
     if not historique:
         return question
 
-    marqueurs_suivi = [
-        "et ", "ses ", "son ", "sa ",
-        "leurs ", "leur ", "cette ",
-        "ce ", "ces ", "celle",
-        "celui", "qu'en est-il", "pourquoi"
-    ]
-
     question_min = question.lower()
 
+    marqueurs_suivi = [
+        "et ", "ses ", "son ", "sa ", "leurs ", "leur ",
+        "cette ", "ce ", "ces ", "celle", "celui",
+        "qu'en est-il", "pourquoi", "peux-tu préciser",
+        "peux tu préciser", "peux-tu détailler",
+        "peux tu détailler", "que viens-tu de mentionner",
+        "que tu viens de mentionner", "ces résultats",
+        "les résultats que tu viens"
+    ]
+
     est_suivi = (
-        len(question.split()) <= 8
-        or any(
-            question_min.startswith(marqueur)
-            for marqueur in marqueurs_suivi
-        )
+        len(question.split()) <= 12
+        or any(question_min.startswith(m) for m in marqueurs_suivi)
+        or "que tu viens de mentionner" in question_min
     )
 
     if not est_suivi:
         return question
 
-    questions_precedentes = [
+    dernieres_questions = [
         message["content"]
         for message in historique
         if message["role"] == "user"
     ]
 
-    if not questions_precedentes:
-        return question
+    dernieres_reponses = [
+        message["content"]
+        for message in historique
+        if message["role"] == "assistant"
+    ]
 
-    derniere_question = questions_precedentes[-1]
+    contexte = []
 
-    return (
-        f"Contexte : {derniere_question}\n"
-        f"Question actuelle : {question}"
-    )
+    if dernieres_questions:
+        contexte.append(
+            f"Question précédente : {dernieres_questions[-1]}"
+        )
+
+    if dernieres_reponses:
+        contexte.append(
+            f"Dernière réponse : {dernieres_reponses[-1][:1200]}"
+        )
+
+    contexte.append(f"Question actuelle : {question}")
+
+    return "\n".join(contexte)
 
 # --------------------------------------------------
 # Recherche hybride FAISS + BM25
