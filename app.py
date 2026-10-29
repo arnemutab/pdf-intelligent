@@ -742,14 +742,25 @@ Règles de citation pour chaque nouvelle réponse :
                             "content": reponse
                         })
 
+                    
                     except Exception as e:
                         st.error("Échec de la génération de la réponse.")
+
+                        # Retirer la question si elle est toujours le dernier message
+                        if (
+                            st.session_state["chat_messages"]
+                            and st.session_state["chat_messages"][-1]["role"] == "user"
+                            and st.session_state["chat_messages"][-1]["content"] == question_utilisateur
+                        ):
+                            st.session_state["chat_messages"].pop()
+
                         st.write("Type d'erreur :", type(e).__name__)
 
                         if hasattr(e, "status_code"):
                             st.write("Code HTTP :", e.status_code)
 
                         st.code(str(e)[:1500])
+
 
 
         if st.button("Effacer la conversation"):
