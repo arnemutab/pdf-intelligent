@@ -29,7 +29,7 @@ MAX_OUTPUT_TOKENS = 1000
 CHUNK_SIZE = 1000
 CHUNK_OVERLAP = 150
 MAX_RETRIEVED_CHUNKS = 4
-MIN_SIMILARITY = 0.30
+MIN_SIMILARITY = 0.20
 
 st.title("📚 PDF Intelligent")
 st.subheader("Comprendre un article scientifique plus rapidement")
