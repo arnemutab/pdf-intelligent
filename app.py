@@ -130,11 +130,15 @@ def contextualiser_question(question, historique):
     "tell me more", "how about"
     ]
 
+    
     est_suivi = (
-        len(question.split()) <= 12
-        or any(question_min.startswith(m) for m in marqueurs_suivi)
+        any(
+            question_min.startswith(m)
+            for m in marqueurs_suivi
+        )
         or "que tu viens de mentionner" in question_min
     )
+
 
     if not est_suivi:
         return question
