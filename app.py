@@ -415,11 +415,14 @@ Texte à analyser :
         max_completion_tokens=ANALYSIS_CHUNK_MAX_OUTPUT_TOKENS
     )
 
-    resultat = response.choices[0].message.content
+    choix = response.choices[0]
+    message = choix.message
+    resultat = message.content
 
     if not resultat:
         raise ValueError(
-            f"Aucune analyse retournée pour le bloc {numero_bloc}."
+            f"Réponse vide pour le bloc {numero_bloc}. "
+            f"finish_reason={choix.finish_reason}"
         )
 
     return resultat
