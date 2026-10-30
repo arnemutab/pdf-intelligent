@@ -26,6 +26,12 @@ MAX_CONTEXT_CHARS = 10000
 MAX_HISTORY_MESSAGES = 4
 MAX_OUTPUT_TOKENS = 1000
 
+# Paramètres de l'analyse scientifique complète
+ANALYSIS_CHUNK_SIZE = 4500
+ANALYSIS_CHUNK_OVERLAP = 300
+ANALYSIS_CHUNK_MAX_OUTPUT_TOKENS = 500
+ANALYSIS_FINAL_MAX_OUTPUT_TOKENS = 1200
+
 CHUNK_SIZE = 1000
 CHUNK_OVERLAP = 150
 MAX_RETRIEVED_CHUNKS = 4
@@ -314,6 +320,268 @@ def rechercher_passages(
 
     return passages
 
+# --------------------------------------------------
+# Découpage de l'article pour l'analyse scientifique
+# --------------------------------------------------
+
+def decouper_article(
+    pages_texte,
+    taille=ANALYSIS_CHUNK_SIZE,
+    chevauchement=ANALYSIS_CHUNK_OVERLAP
+):
+    blocs = []
+
+    for numero_page, contenu in enumerate(pages_texte, start=1):
+
+        contenu = contenu.strip()
+
+        if not contenu:
+            continue
+
+        debut = 0
+
+        while debut < len(contenu):
+
+            fin = debut + taille
+
+            extrait = contenu[debut:fin].strip()
+
+            if extrait:
+                blocs.append({
+                    "page": numero_page,
+                    "text": extrait
+                })
+
+            if fin >= len(contenu):
+                break
+
+            debut = fin - chevauchement
+
+    return blocs
+# --------------------------------------------------
+# Analyse individuelle de chaque bloc avec Groq
+# --------------------------------------------------
+
+def analyser_bloc(client, bloc, numero_bloc, total_blocs):
+
+    prompt = f"""
+Tu es un assistant spécialisé dans l'analyse scientifique.
+
+Analyse attentivement cet extrait d'un article scientifique.
+
+Numéro du bloc : {numero_bloc}/{total_blocs}
+Page du document : {bloc["page"]}
+
+Extrais uniquement les informations présentes dans cet extrait.
+
+Organise ton analyse selon les rubriques suivantes :
+
+1. Sujet et objectif
+2. Problématique
+3. Méthodologie
+4. Résultats principaux
+5. Limites de l'étude
+6. Mots-clés importants
+
+Règles impératives :
+- N'invente aucune information.
+- Ne présente pas une hypothèse comme un résultat.
+- Si une information n'est pas présente, indique "Non mentionné dans cet extrait".
+- Conserve les termes scientifiques importants.
+- Ne tire pas de conclusion sur l'ensemble de l'article à partir de ce seul extrait.
+- Indique la page source : {bloc["page"]}.
+
+Texte à analyser :
+
+{bloc["text"]}
+"""
+
+    response = client.chat.completions.create(
+        model=MODEL,
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    "Tu es un assistant d'analyse scientifique "
+                    "rigoureux et précis."
+                )
+            },
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ],
+        temperature=0.2,
+        max_completion_tokens=ANALYSIS_CHUNK_MAX_OUTPUT_TOKENS
+    )
+
+    resultat = response.choices[0].message.content
+
+    if not resultat:
+        raise ValueError(
+            f"Aucune analyse retournée pour le bloc {numero_bloc}."
+        )
+
+    return resultat
+
+# --------------------------------------------------
+# Regroupement des analyses intermédiaires
+# --------------------------------------------------
+
+
+def regrouper_analyses(client, analyses):
+
+    analyses_actuelles = analyses[:]
+
+    while len(analyses_actuelles) > 4:
+
+        analyses_regroupees = []
+
+        taille_lot = 4
+
+        for debut in range(0, len(analyses_actuelles), taille_lot):
+
+            lot = analyses_actuelles[debut:debut + taille_lot]
+
+            texte_analyses = "\n\n".join(lot)
+
+            prompt = f"""
+Tu es un assistant spécialisé dans l'analyse scientifique.
+
+Voici plusieurs analyses intermédiaires d'un même article.
+
+Produis une synthèse structurée et concise.
+
+Consignes :
+- Conserve les informations scientifiques importantes.
+- Regroupe les informations similaires.
+- Évite les répétitions.
+- Conserve les numéros de page.
+- Ne crée aucune information absente des analyses.
+- Signale les contradictions éventuelles.
+
+Analyses à regrouper :
+
+{texte_analyses}
+"""
+
+            response = client.chat.completions.create(
+                model=MODEL,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": (
+                            "Tu es un assistant rigoureux "
+                            "spécialisé dans la synthèse scientifique."
+                        )
+                    },
+                    {
+                        "role": "user",
+                        "content": prompt
+                    }
+                ],
+                temperature=0.2,
+                max_completion_tokens=600
+            )
+
+            resultat = response.choices[0].message.content
+
+            if not resultat:
+                raise ValueError(
+                    "Une synthèse intermédiaire n'a pas été retournée."
+                )
+
+            analyses_regroupees.append(resultat)
+
+        analyses_actuelles = analyses_regroupees
+
+    return analyses_actuelles
+
+
+# --------------------------------------------------
+# Génération de l'analyse scientifique finale
+# --------------------------------------------------
+
+def generer_analyse_finale(client, analyses_regroupees):
+
+    texte_analyses = "\n\n".join(analyses_regroupees)
+
+    prompt = f"""
+Tu es un expert en analyse d'articles scientifiques.
+
+À partir des synthèses intermédiaires suivantes,
+produis une analyse scientifique complète et détaillée
+de l'article.
+
+Structure obligatoirement ta réponse selon les six rubriques :
+
+## 1. Sujet et objectif
+Présente le domaine scientifique, le sujet étudié
+et les objectifs de l'article.
+
+## 2. Problématique
+Explique le problème scientifique traité,
+les questions de recherche et les hypothèses éventuelles.
+
+## 3. Méthodologie
+Décris les méthodes utilisées, les données,
+les outils, les modèles et le protocole expérimental
+lorsqu'ils sont mentionnés.
+
+## 4. Résultats principaux
+Présente les résultats importants, les observations
+et les contributions scientifiques de l'étude.
+
+## 5. Limites de l'étude
+Identifie les limites explicitement mentionnées
+ainsi que les éventuelles limites déductibles des informations
+disponibles. Dans ce dernier cas, précise qu'il s'agit
+d'une interprétation.
+
+## 6. Cinq mots-clés
+Propose cinq mots-clés représentatifs de l'article.
+
+Règles importantes :
+- Produis une analyse détaillée et claire.
+- Ne répète pas inutilement les mêmes informations.
+- N'invente aucun résultat, chiffre ou référence.
+- Distingue les résultats des hypothèses.
+- Conserve les numéros de page lorsqu'ils sont disponibles.
+- Si une information est absente, indique-le clairement.
+- Base-toi uniquement sur les synthèses fournies.
+
+Synthèses intermédiaires :
+
+{texte_analyses}
+"""
+
+    response = client.chat.completions.create(
+        model=MODEL,
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    "Tu es un expert rigoureux en analyse "
+                    "et synthèse d'articles scientifiques."
+                )
+            },
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ],
+        temperature=0.2,
+        max_completion_tokens=ANALYSIS_FINAL_MAX_OUTPUT_TOKENS
+    )
+
+    resultat = response.choices[0].message.content
+
+    if not resultat:
+        raise ValueError(
+            "L'analyse scientifique finale n'a pas été générée."
+        )
+
+    return resultat
 
 # --------------------------------------------------
 # 2. Importation et extraction du PDF
@@ -432,61 +700,71 @@ if uploaded_file:
                 st.error("Clé API Groq manquante.")
 
             else:
-                prompt = f"""
-Analyse cet article scientifique en français.
-
-Présente les rubriques suivantes :
-1. Sujet et objectif
-2. Problématique
-3. Méthodologie
-4. Résultats principaux
-5. Limites de l'étude
-6. Cinq mots-clés
-
-N'invente aucune information.
-Pour toute information absente, écris :
-"Non précisé dans le texte".
-
-Cite les pages lorsque cela est possible.
-Le texte ci-dessous peut être incomplet si le PDF est long.
-
-Texte de l'article :
-{texte[:12000]}
-"""
-
                 try:
                     client = Groq(api_key=api_key)
 
-                    with st.spinner("Analyse en cours..."):
-                        response = client.chat.completions.create(
-                            model=MODEL,
-                            messages=[
-                                {
-                                    "role": "system",
-                                    "content": (
-                                        "Tu es un assistant d'analyse "
-                                        "scientifique rigoureux."
-                                    )
-                                },
-                                {
-                                    "role": "user",
-                                    "content": prompt
-                                }
-                            ],
-                            temperature=0.2
+                    with st.spinner("Préparation de l'article..."):
+                        blocs = decouper_article(pages_texte)
+
+                    if not blocs:
+                        st.warning(
+                            "Aucun texte exploitable n'a été trouvé dans le PDF."
                         )
 
-                    resume = response.choices[0].message.content
-                    st.session_state["resume_scientifique"] = resume
+                    else:
+                        analyses = []
+                        progression = st.progress(0)
+                        statut = st.empty()
 
-                   
+                        total_blocs = len(blocs)
 
-                except Exception:
+                        for i, bloc in enumerate(blocs, start=1):
+                            statut.text(
+                                f"Analyse du bloc {i}/{total_blocs} "
+                                f"(page {bloc['page']})..."
+                            )
+
+                            resultat = analyser_bloc(
+                                client,
+                                bloc,
+                                i,
+                                total_blocs
+                            )
+
+                            analyses.append(resultat)
+                            progression.progress(i / total_blocs)
+
+                        statut.text(
+                            "Regroupement des analyses intermédiaires..."
+                        )
+
+                        analyses_regroupees = regrouper_analyses(
+                            client,
+                            analyses
+                        )
+
+                        statut.text(
+                            "Génération de l'analyse scientifique finale..."
+                        )
+
+                        resume = generer_analyse_finale(
+                            client,
+                            analyses_regroupees
+                        )
+
+                        st.session_state["resume_scientifique"] = resume
+
+                        progression.empty()
+                        statut.empty()
+
+                        st.success("Analyse scientifique terminée !")
+
+                except Exception as e:
                     st.error(
-                        "L'analyse a échoué. Vérifiez la clé API, "
-                        "le modèle et les limites du service."
+                        f"L'analyse a échoué : {str(e)}"
                     )
-            
+
+                    
         # Afficher le résumé enregistré, même après une interaction
         if st.session_state.get("resume_scientifique"):
 
